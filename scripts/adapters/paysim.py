@@ -12,11 +12,11 @@ def stable_id(prefix: str, value: str) -> str:
     return f"{prefix}_{digest}"
 
 
-def main():
+def main() -> None:
     if not SOURCE.exists():
         raise FileNotFoundError(f"Dataset not found: {SOURCE}")
 
-    df = pd.read_csv(SOURCE)
+    raw = pd.read_csv(SOURCE)
 
     required = {
         "step",
@@ -27,26 +27,30 @@ def main():
         "isFraud",
     }
 
-    missing = required - set(df.columns)
+    missing = required - set(raw.columns)
     if missing:
         raise ValueError(f"Missing columns: {sorted(missing)}")
 
-    df = df.loc[df["amount"] > 0].copy()
-
     result = pd.DataFrame(
         {
-            "transaction_id": [f"paysim_{i}" for i in range(len(df))],
-            "event_time": pd.to_datetime(df["step"], unit="h", utc=True),
-            "sender_id": df["nameOrig"].astype(str),
-            "receiver_id": df["nameDest"].astype(str),
-            "amount": pd.to_numeric(df["amount"], errors="raise"),
-            "transaction_type": df["type"].astype(str),
-            "is_fraud": df["isFraud"].astype(int),
-        }
+            "transaction_id": [
+                f"paysim_{index}" for index in raw.index
+            ],
+            "event_time": pd.to_datetime(
+                raw["step"],
+                unit="h",
+                origin="1970-01-01",
+                utc=True,
+            ),
+            "sender_id": raw["nameOrig"].astype(str),
+            "receiver_id": raw["nameDest"].astype(str),
+            "amount": pd.to_numeric(raw["amount"], errors="raise"),
+            "transaction_type": raw["type"].astype(str),
+            "is_fraud": raw["isFraud"].astype("int8"),
+        },
+        index=raw.index,
     )
 
-    # These are simulated fields because PaySim does not provide real
-    # device, IP, or location identifiers.
     result["device_id"] = result["sender_id"].map(
         lambda value: stable_id("device", value)
     )
@@ -57,14 +61,19 @@ def main():
         lambda value: stable_id("location", value)
     )
 
-    if result["transaction_id"].duplicated().any():
-        raise ValueError("Duplicate transaction IDs found")
+    if len(result) != len(raw):
+        raise RuntimeError(
+            f"Row count changed: raw={len(raw)}, processed={len(result)}"
+        )
 
-    if (result["amount"] <= 0).any():
-        raise ValueError("Non-positive transaction amounts found")
+    if result["transaction_id"].nunique() != len(result):
+        raise RuntimeError("Generated transaction IDs are not unique")
 
-    if result["is_fraud"].isin([0, 1]).all() is False:
-        raise ValueError("is_fraud must contain only 0 or 1")
+    if result["is_fraud"].sum() != raw["isFraud"].sum():
+        raise RuntimeError("Fraud count changed during preprocessing")
+
+    if result["amount"].lt(0).any():
+        raise ValueError("Negative transaction amount found")
 
     result = result.sort_values(
         ["event_time", "transaction_id"],
@@ -74,7 +83,11 @@ def main():
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     result.to_parquet(OUTPUT, index=False)
 
-    print(f"Saved {len(result):,} rows to {OUTPUT}")
+    print(f"Raw rows: {len(raw):,}")
+    print(f"Processed rows: {len(result):,}")
+    print(f"Raw fraud rows: {raw['isFraud'].sum():,}")
+    print(f"Processed fraud rows: {result['is_fraud'].sum():,}")
+    print(f"Saved: {OUTPUT}")
 
 
 if __name__ == "__main__":
