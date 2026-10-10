@@ -1,0 +1,13 @@
+SentinelGraph PaySim EDA Summary
+================================
+Rows: 6,362,620
+Columns: 10
+Fraud rows: 8,213
+Fraud rate: 0.129082%
+Minimum time: 1970-01-01 01:00:00+00:00
+Maximum time: 1970-01-31 23:00:00+00:00
+Minimum amount: 0.0
+Maximum amount: 92445516.64
+Zero amounts: 16
+Duplicate IDs: 0
+Missing values: 0
